@@ -468,6 +468,9 @@ namespace FishNet.Transport.EOSNative
                 return initResult;
             }
 
+            // Apply SDK log level settings (must be after Initialize, before Create)
+            EOSDebugLogger.ApplyEOSSDKLogLevels();
+
             // Create the platform interface using platform-specific options
             _platform = CreatePlatformInterface(config);
             if (_platform == null)

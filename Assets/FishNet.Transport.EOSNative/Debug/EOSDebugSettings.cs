@@ -4,6 +4,37 @@ using UnityEngine;
 namespace FishNet.Transport.EOSNative.Logging
 {
     /// <summary>
+    /// Log level for the EOS SDK's native logging system (LoggingInterface).
+    /// Mirrors Epic.OnlineServices.Logging.LogLevel for safe serialization.
+    /// </summary>
+    public enum EOSSDKLogLevel
+    {
+        Off = 0,
+        Fatal = 1,
+        Error = 2,
+        Warning = 3,
+        Info = 4,
+        Verbose = 5,
+        VeryVerbose = 6
+    }
+
+    /// <summary>
+    /// A per-category log level override for the EOS SDK's native logging.
+    /// </summary>
+    [Serializable]
+    public struct EOSSDKCategoryOverride
+    {
+        [Tooltip("SDK log category name (e.g. P2P, Lobby, RTC).")]
+        public string CategoryName;
+
+        [Tooltip("Log level for this category.")]
+        public EOSSDKLogLevel Level;
+
+        [Tooltip("Whether this override is active.")]
+        public bool Enabled;
+    }
+
+    /// <summary>
     /// Flags enum representing all debug categories in the EOS Native transport.
     /// Each flag corresponds to a specific system that can be individually toggled for logging.
     /// </summary>
@@ -268,6 +299,83 @@ namespace FishNet.Transport.EOSNative.Logging
             }
             return count;
         }
+
+        #region EOS SDK Native Logging
+
+        [Header("EOS SDK Native Logging")]
+        [Tooltip("Enable routing EOS SDK internal logs through LoggingInterface.SetLogLevel/SetCallback.")]
+        [SerializeField]
+        private bool _eosSDKLoggingEnabled = false;
+
+        [Tooltip("Default log level applied to all SDK categories.")]
+        [SerializeField]
+        private EOSSDKLogLevel _eosSDKDefaultLogLevel = EOSSDKLogLevel.Warning;
+
+        [Tooltip("Per-category log level overrides for SDK categories.")]
+        [SerializeField]
+        private EOSSDKCategoryOverride[] _eosSDKCategoryOverrides = new EOSSDKCategoryOverride[0];
+
+        [Tooltip("Route SDK log messages to the Unity console (Debug.Log/LogWarning/LogError).")]
+        [SerializeField]
+        private bool _eosSDKRouteToUnityConsole = true;
+
+        /// <summary>
+        /// Whether EOS SDK native logging is enabled.
+        /// </summary>
+        public bool EOSSDKLoggingEnabled
+        {
+            get => _eosSDKLoggingEnabled;
+            set => _eosSDKLoggingEnabled = value;
+        }
+
+        /// <summary>
+        /// Default log level for all SDK categories.
+        /// </summary>
+        public EOSSDKLogLevel EOSSDKDefaultLogLevel
+        {
+            get => _eosSDKDefaultLogLevel;
+            set => _eosSDKDefaultLogLevel = value;
+        }
+
+        /// <summary>
+        /// Per-category log level overrides.
+        /// </summary>
+        public EOSSDKCategoryOverride[] EOSSDKCategoryOverrides
+        {
+            get => _eosSDKCategoryOverrides;
+            set => _eosSDKCategoryOverrides = value;
+        }
+
+        /// <summary>
+        /// Whether to route SDK log messages to the Unity console.
+        /// </summary>
+        public bool EOSSDKRouteToUnityConsole
+        {
+            get => _eosSDKRouteToUnityConsole;
+            set => _eosSDKRouteToUnityConsole = value;
+        }
+
+        /// <summary>
+        /// Gets the effective SDK log level for a given category name.
+        /// Returns the override level if one exists and is enabled, otherwise the default level.
+        /// </summary>
+        public EOSSDKLogLevel GetSDKLogLevel(string categoryName)
+        {
+            if (_eosSDKCategoryOverrides != null)
+            {
+                for (int i = 0; i < _eosSDKCategoryOverrides.Length; i++)
+                {
+                    if (_eosSDKCategoryOverrides[i].Enabled &&
+                        string.Equals(_eosSDKCategoryOverrides[i].CategoryName, categoryName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return _eosSDKCategoryOverrides[i].Level;
+                    }
+                }
+            }
+            return _eosSDKDefaultLogLevel;
+        }
+
+        #endregion
 
 #if UNITY_EDITOR
         /// <summary>

@@ -24,6 +24,13 @@ namespace FishNet.Transport.EOSNative.Editor
         private bool _storageExpanded = true;
         private bool _moderationExpanded = true;
         private bool _demoExpanded = true;
+        private bool _sdkLoggingExpanded = false;
+
+        // The 8 common SDK categories surfaced in the UI
+        private static readonly string[] SDKCategoryNames = new[]
+        {
+            "P2P", "Lobby", "RTC", "RTCAdmin", "Connect", "Auth", "PlayerDataStorage", "AntiCheat"
+        };
 
         // Styles
         private GUIStyle _headerStyle;
@@ -258,6 +265,9 @@ namespace FishNet.Transport.EOSNative.Editor
                 (DebugCategory.SimpleCamera, "Simple Camera", "Top-down camera following local player")
             }, ICON_DEMO);
 
+            EditorGUILayout.Space(5);
+            DrawSDKLoggingSection();
+
             EditorGUILayout.EndScrollView();
 
             EditorGUILayout.Space(10);
@@ -361,6 +371,174 @@ namespace FishNet.Transport.EOSNative.Editor
             EditorGUILayout.Space(2);
         }
 
+        private void DrawSDKLoggingSection()
+        {
+            bool isEnabled = _settings.EOSSDKLoggingEnabled;
+
+            if (!isEnabled) GUI.color = new Color(0.7f, 0.7f, 0.7f);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            GUI.color = Color.white;
+
+            // Header with enable toggle and foldout
+            EditorGUILayout.BeginHorizontal();
+
+            EditorGUI.BeginChangeCheck();
+            bool newEnabled = EditorGUILayout.Toggle(isEnabled, GUILayout.Width(18));
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(_settings, "Toggle SDK Logging");
+                _settings.EOSSDKLoggingEnabled = newEnabled;
+                EditorUtility.SetDirty(_settings);
+            }
+
+            _sdkLoggingExpanded = EditorGUILayout.Foldout(_sdkLoggingExpanded, "EOS SDK Native Logging", true, EditorStyles.foldoutHeader);
+
+            EditorGUILayout.EndHorizontal();
+
+            if (_sdkLoggingExpanded)
+            {
+                EditorGUI.indentLevel++;
+
+                if (!isEnabled)
+                {
+                    EditorGUILayout.HelpBox("Enable to control EOS SDK internal log verbosity (e.g. LogEOSRTC, LogEOSP2P messages).", MessageType.Info);
+                }
+
+                using (new EditorGUI.DisabledGroupScope(!isEnabled))
+                {
+                    // Route to Unity Console toggle
+                    EditorGUI.BeginChangeCheck();
+                    bool newRoute = EditorGUILayout.ToggleLeft(
+                        new GUIContent("Route to Unity Console", "Forward SDK log messages to Debug.Log/LogWarning/LogError with [EOS:Category] prefix."),
+                        _settings.EOSSDKRouteToUnityConsole);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        Undo.RecordObject(_settings, "Toggle SDK Route to Console");
+                        _settings.EOSSDKRouteToUnityConsole = newRoute;
+                        EditorUtility.SetDirty(_settings);
+                    }
+
+                    EditorGUILayout.Space(3);
+
+                    // Default level dropdown
+                    EditorGUI.BeginChangeCheck();
+                    var newDefault = (EOSSDKLogLevel)EditorGUILayout.EnumPopup(
+                        new GUIContent("Default Level", "Applied to all SDK categories unless overridden below."),
+                        _settings.EOSSDKDefaultLogLevel);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        Undo.RecordObject(_settings, "Change SDK Default Log Level");
+                        _settings.EOSSDKDefaultLogLevel = newDefault;
+                        EditorUtility.SetDirty(_settings);
+                    }
+
+                    EditorGUILayout.Space(5);
+                    EditorGUILayout.LabelField("Category Overrides", EditorStyles.boldLabel);
+
+                    // Ensure overrides array matches the surfaced categories
+                    EnsureSDKCategoryOverrides();
+
+                    var overrides = _settings.EOSSDKCategoryOverrides;
+                    for (int i = 0; i < SDKCategoryNames.Length && i < overrides.Length; i++)
+                    {
+                        EditorGUILayout.BeginHorizontal();
+
+                        // Enable checkbox
+                        EditorGUI.BeginChangeCheck();
+                        bool catEnabled = EditorGUILayout.Toggle(overrides[i].Enabled, GUILayout.Width(18));
+                        if (EditorGUI.EndChangeCheck())
+                        {
+                            Undo.RecordObject(_settings, $"Toggle SDK {SDKCategoryNames[i]} Override");
+                            overrides[i].Enabled = catEnabled;
+                            _settings.EOSSDKCategoryOverrides = overrides;
+                            EditorUtility.SetDirty(_settings);
+                        }
+
+                        // Category name label
+                        EditorGUILayout.LabelField(SDKCategoryNames[i], GUILayout.Width(130));
+
+                        if (overrides[i].Enabled)
+                        {
+                            // Level dropdown
+                            EditorGUI.BeginChangeCheck();
+                            var newLevel = (EOSSDKLogLevel)EditorGUILayout.EnumPopup(overrides[i].Level);
+                            if (EditorGUI.EndChangeCheck())
+                            {
+                                Undo.RecordObject(_settings, $"Change SDK {SDKCategoryNames[i]} Level");
+                                overrides[i].Level = newLevel;
+                                _settings.EOSSDKCategoryOverrides = overrides;
+                                EditorUtility.SetDirty(_settings);
+                            }
+                        }
+                        else
+                        {
+                            // Show "(Default)" in grey
+                            var greyStyle = new GUIStyle(EditorStyles.label)
+                            {
+                                normal = { textColor = new Color(0.5f, 0.5f, 0.5f) }
+                            };
+                            EditorGUILayout.LabelField("(Default)", greyStyle);
+                        }
+
+                        EditorGUILayout.EndHorizontal();
+                    }
+                }
+
+                EditorGUILayout.Space(3);
+                EditorGUILayout.HelpBox("Changes take effect on next SDK initialization (enter Play Mode).", MessageType.None);
+
+                EditorGUI.indentLevel--;
+            }
+
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(2);
+        }
+
+        private void EnsureSDKCategoryOverrides()
+        {
+            var overrides = _settings.EOSSDKCategoryOverrides;
+            if (overrides != null && overrides.Length == SDKCategoryNames.Length)
+            {
+                // Check names match
+                bool match = true;
+                for (int i = 0; i < SDKCategoryNames.Length; i++)
+                {
+                    if (overrides[i].CategoryName != SDKCategoryNames[i])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return;
+            }
+
+            // Build new array preserving any existing enabled/level settings
+            var newOverrides = new EOSSDKCategoryOverride[SDKCategoryNames.Length];
+            for (int i = 0; i < SDKCategoryNames.Length; i++)
+            {
+                newOverrides[i].CategoryName = SDKCategoryNames[i];
+                newOverrides[i].Level = EOSSDKLogLevel.Warning;
+                newOverrides[i].Enabled = false;
+
+                // Preserve existing settings if category name matches
+                if (overrides != null)
+                {
+                    for (int j = 0; j < overrides.Length; j++)
+                    {
+                        if (string.Equals(overrides[j].CategoryName, SDKCategoryNames[i], System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            newOverrides[i].Level = overrides[j].Level;
+                            newOverrides[i].Enabled = overrides[j].Enabled;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Undo.RecordObject(_settings, "Initialize SDK Category Overrides");
+            _settings.EOSSDKCategoryOverrides = newOverrides;
+            EditorUtility.SetDirty(_settings);
+        }
 
         private void DrawHeader()
         {
